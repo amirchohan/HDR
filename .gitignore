@@ -1,0 +1,12 @@
+*.exe
+*.d
+*.o
+*.pyc
+*.apk
+*.so
+*.class
+linux/hdr
+output_images/*
+android/bin/dexedLibs/*.jar
+android/bin
+android/gen

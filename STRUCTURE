@@ -1,0 +1,53 @@
+The Android app captures a frame, applies a filter on it and renders the output to device's display.
+This file explains each of these 3 steps in detail and lists the files used for each of these steps.
+
+Initialise textures:
+	OpenGL GL_TEXTURE_EXTERNAL_OES camera texture
+	OpenGL GL_TEXTURE_2D input texture
+	OpenGL GL_TEXTURE_2D output texture
+	These textures are initialised in initTex() in /android/src/../MyGLRenderer.java
+
+Initialise OpenCL context:
+	initCL() in /src/Filter.cpp is used to initialise OpenCL context
+	/android/src/../MyGLRenderer.java makes a call to this function through JNI, using /android/jni/hdr.cpp
+
+
+Once OpenCL context is intialised, following 3 tasks are performed for each frame
+
+Capturing a camera frame:
+	Update the camera texture so it contains the latest image as seen by the camera
+	Use render to texture to transfer contents of camera texture (GL_TEXTURE_EXTERNAL_OES) to input texture (GL_TEXTURE_2D)
+	This is done in cameraToTexture() in /android/src/../MyGLRenderer.java
+
+Process the camera frame:
+	Acquiring ownership of OpenGL textures
+	Running OpenCL kernels
+	Releasing ownership of OpenGL textures
+	runOpenCL() in /src/Filter.cpp manages the ownership of OpenGL textures and executes the OpenCL kernels for the selected filter 
+	The above is called through JNI by making a call to processFrame() in /android/src/../MyGLRenderer.java
+
+Display the processed frame:
+	The output texture is then used to render from
+	This is done in renderFromTexture() in /android/src/../MyGLRenderer.java
+
+
+
+DIRECTORIES
+
+	/src
+	This contains implementation of all the filters.
+	Each cpp implementation of a filter must contains the following functions:
+		constructer 	- must set the name of the filter
+		setupOpenCL 	- responsible for initialising OpenCL context and setting up OpenCL kernels and memory objects.
+						  sets kernel arguements which do not depend on camera frames
+						  this also precomputes anything that will remain constant throughout all the frames, such as size of each mipmap level.
+		runCLKernels 	- enqueues all the OpenCL kernels for this filter
+		cleanupCL 		- releases all the OpenCL kernels and memory objects
+		reference 		- serial implementation of the filter, so that the OpenCL output can be verified against it
+	/src directory also contains a folder opencl/, which contains OpenCL implementation of all the filters
+
+	/android
+	Contains source code to run the filters on an Android device
+
+	/linux
+	Contains source code to run the filters on a linux machine

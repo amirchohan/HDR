@@ -1,0 +1,13 @@
+TODO
+
+Algorithms:
+	An OpenCL Possion solver for Gradient Domain HDR Compression algorithm
+	Fix verification for Reinhard's Local TMO
+
+Android:
+	FPS on screen
+	GUI options to:
+		Switch between Serial, OpenCL and OpenCL/OpenGL pipeline
+		Change camera resolution
+		Change TMOs
+		TMO parameters

@@ -1,0 +1,45 @@
+This project provides OpenCL (and serial) implementations of the following HDR TMOs:
+	Reinhard Global
+	Reinhard Local
+	Gradient Domain HDR Compression
+
+The project also consists of source code for an Android app to apply the above TMOs on camera frames.
+The app acquires camera frames in form of an OpenGL texture, it then uses OpenCL-OpenGL interop to apply a TMO to the acquired texture.
+The output is an OpenGL texture which is then rendered to the device's display.
+
+The app is not just limited to HDR TMOs, but can be used for any application which requires processing and displaying live camera stream.
+To demostrate this, an OpenCL implementation of Histogram Equalisation is also provided in this project.
+
+
+Linux:
+	Setting up:
+	The linux implementation is written in C++ and requires the following libraries:
+		OpenCL (1.1) - to run OpenCL implementations
+		OpenGL - for OpenCL-OpenGL interop
+		libjpeg - to read and write jpeg files
+		libSDL_image - to read and write jpeg files 
+
+	Running the code:
+		cd linux
+		./hdr
+
+
+Android:
+	Setting up:
+	Requires following:
+		Android SDK	- to develop the app
+		Android NDK - for JNI
+		Ant
+		libOpenCL for android
+	the shell script setupAndroidEnvironment.sh in the android directory of this project does all of the above
+
+	Running the app:
+		cd android
+		./clean.sh (to remove the app from the device)
+		./install_run.sh
+
+
+Further reading:
+	STRUCTURE goes over the general layout of the project and tries to explain what file fits where
+	NOTES mentions few things which may not be straight forward to understand at first.
+	TODO contains a list of things which need to be worked on.
