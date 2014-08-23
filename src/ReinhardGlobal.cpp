@@ -20,7 +20,7 @@ ReinhardGlobal::ReinhardGlobal(float _key, float _sat) : Filter() {
 bool ReinhardGlobal::setupOpenCL(cl_context_properties context_prop[], const Params& params) {
 
 	char flags[1024];
-	sprintf(flags, "-cl-fast-relaxed-math -D NUM_CHANNELS=%d -D WIDTH=%d -D HEIGHT=%d -D KEY=%f -D SAT=%f -D BUGGY_CL_GL=%d",
+	sprintf(flags, "-cl-fast-relaxed-math -D NUM_CHANNELS=%d -D WIDTH=%d -D HEIGHT=%d -D KEY=%ff -D SAT=%ff -D BUGGY_CL_GL=%d",
 				NUM_CHANNELS, img_size.x, img_size.y, key, sat, BUGGY_CL_GL);
 
 	if (!initCL(context_prop, params, reinhardGlobal_kernel, flags)) return false;
@@ -66,10 +66,10 @@ bool ReinhardGlobal::setupOpenCL(cl_context_properties context_prop[], const Par
 
 	/////////////////////////////////////////////////////////////////allocating memory
 
-	mems["logAvgLum"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*num_wg, NULL, &err);
+	mems["logAvgLum"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*num_wg, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating logAvgLum memory", return false);
 
-	mems["Lwhite"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*num_wg, NULL, &err);
+	mems["Lwhite"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*num_wg, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating Lwhite memory", return false);
 
 	if (params.opengl) {
@@ -92,58 +92,104 @@ bool ReinhardGlobal::setupOpenCL(cl_context_properties context_prop[], const Par
 
 	/////////////////////////////////////////////////////////////////setting kernel arguements
 
-	err  = clSetKernelArg(kernels["computeLogAvgLum"], 0, sizeof(cl_mem), &mem_images[0]);
-	err  = clSetKernelArg(kernels["computeLogAvgLum"], 1, sizeof(cl_mem), &mems["logAvgLum"]);
-	err  = clSetKernelArg(kernels["computeLogAvgLum"], 2, sizeof(cl_mem), &mems["Lwhite"]);
-	err  = clSetKernelArg(kernels["computeLogAvgLum"], 3, sizeof(float*)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
-	err  = clSetKernelArg(kernels["computeLogAvgLum"], 4, sizeof(float*)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 0, sizeof(cl_mem), &mem_images[0]);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 1, sizeof(cl_mem), &mems["logAvgLum"]);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 2, sizeof(cl_mem), &mems["Lwhite"]);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 3, sizeof(cl_float)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 4, sizeof(cl_float)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
 	CHECK_ERROR_OCL(err, "setting computeLogAvgLum arguments", return false);
 
-	err  = clSetKernelArg(kernels["finalReduc"], 0, sizeof(cl_mem), &mems["logAvgLum"]);
-	err  = clSetKernelArg(kernels["finalReduc"], 1, sizeof(cl_mem), &mems["Lwhite"]);
-	err  = clSetKernelArg(kernels["finalReduc"], 2, sizeof(unsigned int), &num_wg);
+	err = clSetKernelArg(kernels["finalReduc"], 0, sizeof(cl_mem), &mems["logAvgLum"]);
+	err = clSetKernelArg(kernels["finalReduc"], 1, sizeof(cl_mem), &mems["Lwhite"]);
+	err = clSetKernelArg(kernels["finalReduc"], 2, sizeof(cl_uint), &num_wg);
 	CHECK_ERROR_OCL(err, "setting finalReduc arguments", return false);
 
-	err  = clSetKernelArg(kernels["reinhardGlobal"], 0, sizeof(cl_mem), &mem_images[0]);
-	err  = clSetKernelArg(kernels["reinhardGlobal"], 1, sizeof(cl_mem), &mem_images[1]);
-	err  = clSetKernelArg(kernels["reinhardGlobal"], 2, sizeof(cl_mem), &mems["logAvgLum"]);
-	err  = clSetKernelArg(kernels["reinhardGlobal"], 3, sizeof(cl_mem), &mems["Lwhite"]);
-	CHECK_ERROR_OCL(err, "setting globalTMO arguments", return false);
+	err = clSetKernelArg(kernels["reinhardGlobal"], 0, sizeof(cl_mem), &mem_images[0]);
+	err = clSetKernelArg(kernels["reinhardGlobal"], 1, sizeof(cl_mem), &mem_images[1]);
+	err = clSetKernelArg(kernels["reinhardGlobal"], 2, sizeof(cl_mem), &mems["logAvgLum"]);
+	err = clSetKernelArg(kernels["reinhardGlobal"], 3, sizeof(cl_mem), &mems["Lwhite"]);
+	CHECK_ERROR_OCL(err, "setting reinhardGlobal arguments", return false);
 
 	reportStatus("\n");
 
 	return true;
 }
 
-double ReinhardGlobal::runCLKernels(bool recomputeMapping) {
-	double start = omp_get_wtime();
+double ReinhardGlobal::runCLKernels(std::vector<bool> whichKernelsToRun, bool recomputeMapping) {
+	double start, end;
 
-	cl_int err;
-	err = clEnqueueNDRangeKernel(m_queue, kernels["computeLogAvgLum"], 2, NULL, global_sizes["computeLogAvgLum"], local_sizes["computeLogAvgLum"], 0, NULL, NULL);
-	CHECK_ERROR_OCL(err, "enqueuing computeLogAvgLum kernel", return false);
+	if (!whichKernelsToRun[0]) {
+		// if whichKernelsToRun[0] is false, -kernels was provided;
+		// hence, should warn about invalid indices
+		for (unsigned kernelIdx = 4; kernelIdx < whichKernelsToRun.size(); ++kernelIdx) {
+			if (whichKernelsToRun[kernelIdx]) {
+				reportStatus("Warning: no kernel with index %d", kernelIdx);
+			}
+		}
+	}
 
-	err = clEnqueueNDRangeKernel(m_queue, kernels["finalReduc"], 1, NULL, &global_sizes["finalReduc"][0], &local_sizes["finalReduc"][0], 0, NULL, NULL);
-	CHECK_ERROR_OCL(err, "enqueuing finalReduc kernel", return false);
+	start = omp_get_wtime();
 
-	err = clEnqueueNDRangeKernel(m_queue, kernels["reinhardGlobal"], 2, NULL, global_sizes["reinhardGlobal"], local_sizes["reinhardGlobal"], 0, NULL, NULL);
-	CHECK_ERROR_OCL(err, "enqueuing transfer_data kernel", return false);
+	cl_int err = CL_SUCCESS;
+	cl_event event = 0;
+
+	if (whichKernelsToRun[1]) {
+		err = clEnqueueNDRangeKernel(m_queue, kernels["computeLogAvgLum"], 2, NULL,
+			global_sizes["computeLogAvgLum"], local_sizes["computeLogAvgLum"], 0, NULL, &event);
+		CHECK_ERROR_OCL(err, "enqueuing kernel 1: computeLogAvgLum", return false);
+		CHECK_PROFILING_OCL(event, "profiling kernel 1: computeLogAvgLum");
+	}
+
+	if (whichKernelsToRun[2]) {
+		err = clEnqueueNDRangeKernel(m_queue, kernels["finalReduc"], 1, NULL,
+			&global_sizes["finalReduc"][0], &local_sizes["finalReduc"][0], 0, NULL, &event);
+		CHECK_ERROR_OCL(err, "enqueuing kernel 2: finalReduc", return false);
+		CHECK_PROFILING_OCL(event, "profiling kernel 2: finalReduc");
+	}
+
+	if (whichKernelsToRun[3]) {
+		err = clEnqueueNDRangeKernel(m_queue, kernels["reinhardGlobal"], 2, NULL,
+			global_sizes["reinhardGlobal"], local_sizes["reinhardGlobal"], 0, NULL, &event);
+		CHECK_ERROR_OCL(err, "enqueuing kernel 3: reinhardGlobal", return false);
+		CHECK_PROFILING_OCL(event, "profiling kernel 3: reinhardGlobal");
+	}
 
 	err = clFinish(m_queue);
 	CHECK_ERROR_OCL(err, "running kernels", return false);
-	return omp_get_wtime() - start;	
+
+	end = omp_get_wtime();
+
+	return (end - start);
 }
 
 
 bool ReinhardGlobal::cleanupOpenCL() {
-	clReleaseMemObject(mem_images[0]);
-	clReleaseMemObject(mem_images[1]);
-	clReleaseMemObject(mems["Lwhite"]);
-	clReleaseMemObject(mems["logAvgLum"]);
-	clReleaseKernel(kernels["computeLogAvgLum"]);
-	clReleaseKernel(kernels["finalReduc"]);
-	clReleaseKernel(kernels["reinhardGlobal"]);
+	cl_int err = CL_SUCCESS;
+
+	err = clReleaseMemObject(mem_images[0]);
+	CHECK_ERROR_OCL(err, "releasing memobject mem_images[0]", return false);
+
+	err = clReleaseMemObject(mem_images[1]);
+	CHECK_ERROR_OCL(err, "releasing memobject mem_images[1]", return false);
+
+	err = clReleaseMemObject(mems["Lwhite"]);
+	CHECK_ERROR_OCL(err, "releasing memobject Lwhite", return false);
+
+	err = clReleaseMemObject(mems["logAvgLum"]);
+	CHECK_ERROR_OCL(err, "releasing memobject logAvgLum", return false);
+
+	err = clReleaseKernel(kernels["computeLogAvgLum"]);
+	CHECK_ERROR_OCL(err, "releasing kernel computeLogAvgLum", return false);
+
+	err = clReleaseKernel(kernels["finalReduc"]);
+	CHECK_ERROR_OCL(err, "releasing kernel finalReduc", return false);
+
+	err = clReleaseKernel(kernels["reinhardGlobal"]);
+	CHECK_ERROR_OCL(err, "releasing kernel reinhardGlobal", return false);
+
+//	err = releaseCL();
 	releaseCL();
-	return true;
+	return CL_SUCCESS == err;
 }
 
 
@@ -165,7 +211,7 @@ bool ReinhardGlobal::runReference(uchar* input, uchar* output) {
 	for (pos.y = 0; pos.y < img_size.y; pos.y++) {
 		for (pos.x = 0; pos.x < img_size.x; pos.x++) {
 			float lum = getPixelLuminance(input, img_size, pos);
-			logAvgLum += log(lum + 0.000001);
+			logAvgLum += log(lum + 0.000001f);
 
 			if (lum > Lwhite) Lwhite = lum;
 		}
@@ -183,7 +229,7 @@ bool ReinhardGlobal::runReference(uchar* input, uchar* output) {
 			xyz = RGBtoXYZ(rgb);
 
 			float L  = (key/logAvgLum) * xyz.y;
-			float Ld = (L * (1.f + L/(Lwhite * Lwhite)) )/(1.f + L);
+			float Ld = (L * (1.f + L/(Lwhite * Lwhite))) / (1.f + L);
 
 			rgb.x = pow(rgb.x/xyz.y, sat) * Ld;
 			rgb.y = pow(rgb.y/xyz.y, sat) * Ld;

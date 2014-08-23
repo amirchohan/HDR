@@ -128,9 +128,12 @@ bool HistEq::setupOpenCL(cl_context_properties context_prop[], const Params& par
 	return true;
 }
 
-double HistEq::runCLKernels(bool recomputeMapping) {
+double HistEq::runCLKernels(std::vector<bool> whichKernelsToRun, bool recomputeMapping) {
+	double start, end;
+
+	start = omp_get_wtime();
+
 	cl_int err;
-	double start = omp_get_wtime();
 
 	err = clEnqueueNDRangeKernel(m_queue, kernels["transfer_data"], 2, NULL, global_sizes["transfer_data"], local_sizes["transfer_data"], 0, NULL, NULL);
 	CHECK_ERROR_OCL(err, "enqueuing transfer_data kernel", return false);
@@ -150,7 +153,9 @@ double HistEq::runCLKernels(bool recomputeMapping) {
 	err = clFinish(m_queue);
 	CHECK_ERROR_OCL(err, "running kernels", return false);
 
-	return omp_get_wtime() - start;
+	end = omp_get_wtime();
+
+	return (end - start);
 }
 
 bool HistEq::cleanupOpenCL() {

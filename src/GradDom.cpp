@@ -125,28 +125,28 @@ bool GradDom::setupOpenCL(cl_context_properties context_prop[], const Params& pa
 
 	//initialise memory objects
 	//TODO: this can be further optmised by reusing the same memory again
-	mems["logLum_Mips"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*img_size.x*img_size.y*2, NULL, &err);
+	mems["logLum_Mips"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*img_size.x*img_size.y*2, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating logLum_Mips memory", return false);
 
-	mems["gradient_Mips"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*img_size.x*img_size.y*2, NULL, &err);
+	mems["gradient_Mips"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*img_size.x*img_size.y*2, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating gradient_Mips memory", return false);
 
-	mems["attenfunc_Mips"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*img_size.x*img_size.y*2, NULL, &err);
+	mems["attenfunc_Mips"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*img_size.x*img_size.y*2, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating attenfunc_Mips memory", return false);
 
-	mems["gradient_PartialSum"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*num_wg, NULL, &err);
+	mems["gradient_PartialSum"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*num_wg, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating gradient_PartialSum memory", return false);
 
-	mems["k_alphas"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*num_mipmaps, NULL, &err);
+	mems["k_alphas"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*num_mipmaps, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating k_alphas memory", return false);
 
-	mems["atten_grad_x"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*img_size.x*img_size.y, NULL, &err);
+	mems["atten_grad_x"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*img_size.x*img_size.y, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating atten_grad_x memory", return false);
 
-	mems["atten_grad_y"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*img_size.x*img_size.y, NULL, &err);
+	mems["atten_grad_y"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*img_size.x*img_size.y, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating atten_grad_y memory", return false);
 
-	mems["div_grad"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*img_size.x*img_size.y, NULL, &err);
+	mems["div_grad"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(cl_float)*img_size.x*img_size.y, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating div_grad memory", return false);
 
 	if (params.opengl) {
@@ -170,49 +170,49 @@ bool GradDom::setupOpenCL(cl_context_properties context_prop[], const Params& pa
 
 	/////////////////////////////////////////////////////////////////setting kernel arguements
 
-	err  = clSetKernelArg(kernels["computeLogLum"], 0, sizeof(cl_mem), &mem_images[0]);
-	err  = clSetKernelArg(kernels["computeLogLum"], 1, sizeof(cl_mem), &mems["logLum_Mips"]);
+	err = clSetKernelArg(kernels["computeLogLum"], 0, sizeof(cl_mem), &mem_images[0]);
+	err = clSetKernelArg(kernels["computeLogLum"], 1, sizeof(cl_mem), &mems["logLum_Mips"]);
 	CHECK_ERROR_OCL(err, "setting computeLogLum arguments", return false);
 
-	err  = clSetKernelArg(kernels["channel_mipmap"], 0, sizeof(cl_mem), &mems["logLum_Mips"]);
+	err = clSetKernelArg(kernels["channel_mipmap"], 0, sizeof(cl_mem), &mems["logLum_Mips"]);
 	CHECK_ERROR_OCL(err, "setting channel_mipmap arguments", return false);
 
-	err  = clSetKernelArg(kernels["gradient_mag"], 0, sizeof(cl_mem), &mems["logLum_Mips"]);
-	err  = clSetKernelArg(kernels["gradient_mag"], 1, sizeof(cl_mem), &mems["gradient_Mips"]);
+	err = clSetKernelArg(kernels["gradient_mag"], 0, sizeof(cl_mem), &mems["logLum_Mips"]);
+	err = clSetKernelArg(kernels["gradient_mag"], 1, sizeof(cl_mem), &mems["gradient_Mips"]);
 	CHECK_ERROR_OCL(err, "setting gradient_mag arguments", return false);
 
-	err  = clSetKernelArg(kernels["partialReduc"], 0, sizeof(cl_mem), &mems["gradient_Mips"]);
-	err  = clSetKernelArg(kernels["partialReduc"], 1, sizeof(cl_mem), &mems["gradient_PartialSum"]);
-	err  = clSetKernelArg(kernels["partialReduc"], 2, sizeof(float)*local_sizes["partialReduc"][0], NULL);
+	err = clSetKernelArg(kernels["partialReduc"], 0, sizeof(cl_mem), &mems["gradient_Mips"]);
+	err = clSetKernelArg(kernels["partialReduc"], 1, sizeof(cl_mem), &mems["gradient_PartialSum"]);
+	err = clSetKernelArg(kernels["partialReduc"], 2, sizeof(cl_float)*local_sizes["partialReduc"][0], NULL);
 	CHECK_ERROR_OCL(err, "setting partialReduc arguments", return false);
 
-	err  = clSetKernelArg(kernels["finalReduc"], 0, sizeof(cl_mem), &mems["gradient_PartialSum"]);
-	err  = clSetKernelArg(kernels["finalReduc"], 1, sizeof(cl_mem), &mems["k_alphas"]);
-	err  = clSetKernelArg(kernels["finalReduc"], 5, sizeof(unsigned int), &num_wg);
+	err = clSetKernelArg(kernels["finalReduc"], 0, sizeof(cl_mem), &mems["gradient_PartialSum"]);
+	err = clSetKernelArg(kernels["finalReduc"], 1, sizeof(cl_mem), &mems["k_alphas"]);
+	err = clSetKernelArg(kernels["finalReduc"], 5, sizeof(cl_uint), &num_wg);
 	CHECK_ERROR_OCL(err, "setting finalReduc arguments", return false);
 
-	err  = clSetKernelArg(kernels["coarsest_level_attenfunc"], 0, sizeof(cl_mem), &mems["gradient_Mips"]);
-	err  = clSetKernelArg(kernels["coarsest_level_attenfunc"], 1, sizeof(cl_mem), &mems["attenfunc_Mips"]);
-	err  = clSetKernelArg(kernels["coarsest_level_attenfunc"], 2, sizeof(cl_mem), &mems["k_alphas"]);
-	err  = clSetKernelArg(kernels["coarsest_level_attenfunc"], 3, sizeof(int), &m_width[num_mipmaps-1]);
-	err  = clSetKernelArg(kernels["coarsest_level_attenfunc"], 4, sizeof(int), &m_height[num_mipmaps-1]);
-	err  = clSetKernelArg(kernels["coarsest_level_attenfunc"], 5, sizeof(int), &m_offset[num_mipmaps-1]);
+	err = clSetKernelArg(kernels["coarsest_level_attenfunc"], 0, sizeof(cl_mem), &mems["gradient_Mips"]);
+	err = clSetKernelArg(kernels["coarsest_level_attenfunc"], 1, sizeof(cl_mem), &mems["attenfunc_Mips"]);
+	err = clSetKernelArg(kernels["coarsest_level_attenfunc"], 2, sizeof(cl_mem), &mems["k_alphas"]);
+	err = clSetKernelArg(kernels["coarsest_level_attenfunc"], 3, sizeof(cl_int), &m_width[num_mipmaps-1]);
+	err = clSetKernelArg(kernels["coarsest_level_attenfunc"], 4, sizeof(cl_int), &m_height[num_mipmaps-1]);
+	err = clSetKernelArg(kernels["coarsest_level_attenfunc"], 5, sizeof(cl_int), &m_offset[num_mipmaps-1]);
 	CHECK_ERROR_OCL(err, "setting coarsest_level_attenfunc arguments", return false);
 
-	err  = clSetKernelArg(kernels["atten_func"], 0, sizeof(cl_mem), &mems["gradient_Mips"]);
-	err  = clSetKernelArg(kernels["atten_func"], 1, sizeof(cl_mem), &mems["attenfunc_Mips"]);
-	err  = clSetKernelArg(kernels["atten_func"], 2, sizeof(cl_mem), &mems["k_alphas"]);
+	err = clSetKernelArg(kernels["atten_func"], 0, sizeof(cl_mem), &mems["gradient_Mips"]);
+	err = clSetKernelArg(kernels["atten_func"], 1, sizeof(cl_mem), &mems["attenfunc_Mips"]);
+	err = clSetKernelArg(kernels["atten_func"], 2, sizeof(cl_mem), &mems["k_alphas"]);
 	CHECK_ERROR_OCL(err, "setting atten_func arguments", return false);
 
-	err  = clSetKernelArg(kernels["grad_atten"], 0, sizeof(cl_mem), &mems["atten_grad_x"]);
-	err  = clSetKernelArg(kernels["grad_atten"], 1, sizeof(cl_mem), &mems["atten_grad_y"]);
-	err  = clSetKernelArg(kernels["grad_atten"], 2, sizeof(cl_mem), &mems["logLum_Mips"]);
-	err  = clSetKernelArg(kernels["grad_atten"], 3, sizeof(cl_mem), &mems["attenfunc_Mips"]);
+	err = clSetKernelArg(kernels["grad_atten"], 0, sizeof(cl_mem), &mems["atten_grad_x"]);
+	err = clSetKernelArg(kernels["grad_atten"], 1, sizeof(cl_mem), &mems["atten_grad_y"]);
+	err = clSetKernelArg(kernels["grad_atten"], 2, sizeof(cl_mem), &mems["logLum_Mips"]);
+	err = clSetKernelArg(kernels["grad_atten"], 3, sizeof(cl_mem), &mems["attenfunc_Mips"]);
 	CHECK_ERROR_OCL(err, "setting grad_atten arguments", return false);
 
-	err  = clSetKernelArg(kernels["divG"], 0, sizeof(cl_mem), &mems["atten_grad_x"]);
-	err  = clSetKernelArg(kernels["divG"], 1, sizeof(cl_mem), &mems["atten_grad_y"]);
-	err  = clSetKernelArg(kernels["divG"], 2, sizeof(cl_mem), &mems["div_grad"]);
+	err = clSetKernelArg(kernels["divG"], 0, sizeof(cl_mem), &mems["atten_grad_x"]);
+	err = clSetKernelArg(kernels["divG"], 1, sizeof(cl_mem), &mems["atten_grad_y"]);
+	err = clSetKernelArg(kernels["divG"], 2, sizeof(cl_mem), &mems["div_grad"]);
 	CHECK_ERROR_OCL(err, "setting divG arguments", return false);
 
 	reportStatus("\n\n");
@@ -220,8 +220,10 @@ bool GradDom::setupOpenCL(cl_context_properties context_prop[], const Params& pa
 	return true;
 }
 
-double GradDom::runCLKernels(bool recomputeMapping) {
-	double start = omp_get_wtime();
+double GradDom::runCLKernels(std::vector<bool> whichKernelsToRun, bool recomputeMapping) {
+	double start, end;
+
+	start = omp_get_wtime();
 
 	cl_int err;
 	if (recomputeMapping) {
@@ -229,52 +231,52 @@ double GradDom::runCLKernels(bool recomputeMapping) {
 		CHECK_ERROR_OCL(err, "enqueuing computeLogLum kernel", return false);
 
 		//compute the gradient magniute of mipmap level 0
-		err  = clSetKernelArg(kernels["gradient_mag"], 2, sizeof(int), &m_width[0]);
-		err  = clSetKernelArg(kernels["gradient_mag"], 3, sizeof(int), &m_height[0]);
-		err  = clSetKernelArg(kernels["gradient_mag"], 4, sizeof(int), &m_offset[0]);
-		err  = clSetKernelArg(kernels["gradient_mag"], 5, sizeof(float), &m_divider[0]);
+		err = clSetKernelArg(kernels["gradient_mag"], 2, sizeof(cl_int), &m_width[0]);
+		err = clSetKernelArg(kernels["gradient_mag"], 3, sizeof(cl_int), &m_height[0]);
+		err = clSetKernelArg(kernels["gradient_mag"], 4, sizeof(cl_int), &m_offset[0]);
+		err = clSetKernelArg(kernels["gradient_mag"], 5, sizeof(cl_float), &m_divider[0]);
 		err = clEnqueueNDRangeKernel(m_queue, kernels["gradient_mag"], 2, NULL, global_sizes["gradient_mag"], local_sizes["gradient_mag"], 0, NULL, NULL);
 		CHECK_ERROR_OCL(err, "enqueuing gradient_mag kernel", return false);
 
-		err  = clSetKernelArg(kernels["partialReduc"], 3, sizeof(int), &m_width[0]);
-		err  = clSetKernelArg(kernels["partialReduc"], 4, sizeof(int), &m_height[0]);
-		err  = clSetKernelArg(kernels["partialReduc"], 5, sizeof(int), &m_offset[0]);
+		err = clSetKernelArg(kernels["partialReduc"], 3, sizeof(cl_int), &m_width[0]);
+		err = clSetKernelArg(kernels["partialReduc"], 4, sizeof(cl_int), &m_height[0]);
+		err = clSetKernelArg(kernels["partialReduc"], 5, sizeof(cl_int), &m_offset[0]);
 		err = clEnqueueNDRangeKernel(m_queue, kernels["partialReduc"], 1, NULL, &global_sizes["partialReduc"][0], &local_sizes["partialReduc"][0], 0, NULL, NULL);
 		CHECK_ERROR_OCL(err, "setting partialReduc arguments", return false);
 
 		int level = 0;
-		err  = clSetKernelArg(kernels["finalReduc"], 2, sizeof(int), &level);
-		err  = clSetKernelArg(kernels["finalReduc"], 3, sizeof(int), &m_width[level]);
-		err  = clSetKernelArg(kernels["finalReduc"], 4, sizeof(int), &m_height[level]);
+		err = clSetKernelArg(kernels["finalReduc"], 2, sizeof(cl_int), &level);
+		err = clSetKernelArg(kernels["finalReduc"], 3, sizeof(cl_int), &m_width[level]);
+		err = clSetKernelArg(kernels["finalReduc"], 4, sizeof(cl_int), &m_height[level]);
 		err = clEnqueueNDRangeKernel(m_queue, kernels["finalReduc"], 1, NULL, &global_sizes["finalReduc"][0], &local_sizes["finalReduc"][0], 0, NULL, NULL);
 		CHECK_ERROR_OCL(err, "enqueuing finalReduc kernel", return false);
 	
 		//creating mipmaps and their gradient magnitudes
 		for (int level=1; level<num_mipmaps; level++) {
-			err  = clSetKernelArg(kernels["channel_mipmap"], 1, sizeof(int), &m_width[level-1]);
-			err  = clSetKernelArg(kernels["channel_mipmap"], 2, sizeof(int), &m_offset[level-1]);
-			err  = clSetKernelArg(kernels["channel_mipmap"], 3, sizeof(int), &m_width[level]);
-			err  = clSetKernelArg(kernels["channel_mipmap"], 4, sizeof(int), &m_height[level]);
-			err  = clSetKernelArg(kernels["channel_mipmap"], 5, sizeof(int), &m_offset[level]);
+			err = clSetKernelArg(kernels["channel_mipmap"], 1, sizeof(cl_int), &m_width[level-1]);
+			err = clSetKernelArg(kernels["channel_mipmap"], 2, sizeof(cl_int), &m_offset[level-1]);
+			err = clSetKernelArg(kernels["channel_mipmap"], 3, sizeof(cl_int), &m_width[level]);
+			err = clSetKernelArg(kernels["channel_mipmap"], 4, sizeof(cl_int), &m_height[level]);
+			err = clSetKernelArg(kernels["channel_mipmap"], 5, sizeof(cl_int), &m_offset[level]);
 			err = clEnqueueNDRangeKernel(m_queue, kernels["channel_mipmap"], 2, NULL, global_sizes["channel_mipmap"], local_sizes["channel_mipmap"], 0, NULL, NULL);
 			CHECK_ERROR_OCL(err, "enqueuing channel_mipmap kernel", return false);
 
-			err  = clSetKernelArg(kernels["gradient_mag"], 2, sizeof(int), &m_width[level]);
-			err  = clSetKernelArg(kernels["gradient_mag"], 3, sizeof(int), &m_height[level]);
-			err  = clSetKernelArg(kernels["gradient_mag"], 4, sizeof(int), &m_offset[level]);
-			err  = clSetKernelArg(kernels["gradient_mag"], 5, sizeof(float), &m_divider[level]);
+			err = clSetKernelArg(kernels["gradient_mag"], 2, sizeof(cl_int), &m_width[level]);
+			err = clSetKernelArg(kernels["gradient_mag"], 3, sizeof(cl_int), &m_height[level]);
+			err = clSetKernelArg(kernels["gradient_mag"], 4, sizeof(cl_int), &m_offset[level]);
+			err = clSetKernelArg(kernels["gradient_mag"], 5, sizeof(cl_float), &m_divider[level]);
 			err = clEnqueueNDRangeKernel(m_queue, kernels["gradient_mag"], 2, NULL, global_sizes["gradient_mag"], local_sizes["gradient_mag"], 0, NULL, NULL);
 			CHECK_ERROR_OCL(err, "enqueuing gradient_mag kernel", return false);			
 
-			err  = clSetKernelArg(kernels["partialReduc"], 3, sizeof(int), &m_width[level]);
-			err  = clSetKernelArg(kernels["partialReduc"], 4, sizeof(int), &m_height[level]);
-			err  = clSetKernelArg(kernels["partialReduc"], 5, sizeof(int), &m_offset[level]);
+			err = clSetKernelArg(kernels["partialReduc"], 3, sizeof(cl_int), &m_width[level]);
+			err = clSetKernelArg(kernels["partialReduc"], 4, sizeof(cl_int), &m_height[level]);
+			err = clSetKernelArg(kernels["partialReduc"], 5, sizeof(cl_int), &m_offset[level]);
 			err = clEnqueueNDRangeKernel(m_queue, kernels["partialReduc"], 1, NULL, &global_sizes["partialReduc"][0], &local_sizes["partialReduc"][0], 0, NULL, NULL);
 			CHECK_ERROR_OCL(err, "setting partialReduc arguments", return false);
 	
-			err  = clSetKernelArg(kernels["finalReduc"], 2, sizeof(int), &level);
-			err  = clSetKernelArg(kernels["finalReduc"], 3, sizeof(int), &m_width[level]);
-			err  = clSetKernelArg(kernels["finalReduc"], 4, sizeof(int), &m_height[level]);
+			err = clSetKernelArg(kernels["finalReduc"], 2, sizeof(cl_int), &level);
+			err = clSetKernelArg(kernels["finalReduc"], 3, sizeof(cl_int), &m_width[level]);
+			err = clSetKernelArg(kernels["finalReduc"], 4, sizeof(cl_int), &m_height[level]);
 			err = clEnqueueNDRangeKernel(m_queue, kernels["finalReduc"], 1, NULL, &global_sizes["finalReduc"][0], &local_sizes["finalReduc"][0], 0, NULL, NULL);
 			CHECK_ERROR_OCL(err, "enqueuing finalReduc kernel", return false);
 		}
@@ -285,13 +287,13 @@ double GradDom::runCLKernels(bool recomputeMapping) {
 		CHECK_ERROR_OCL(err, "enqueuing coarsest_level_attenfunc kernel", return false);
 
 		for (int level=num_mipmaps-2; level>-1; level--) {
-			err  = clSetKernelArg(kernels["atten_func"], 3, sizeof(int), &m_width[level]);
-			err  = clSetKernelArg(kernels["atten_func"], 4, sizeof(int), &m_height[level]);
-			err  = clSetKernelArg(kernels["atten_func"], 5, sizeof(int), &m_offset[level]);
-			err  = clSetKernelArg(kernels["atten_func"], 6, sizeof(int), &m_width[level+1]);
-			err  = clSetKernelArg(kernels["atten_func"], 7, sizeof(int), &m_height[level+1]);
-			err  = clSetKernelArg(kernels["atten_func"], 8, sizeof(int), &m_offset[level+1]);
-			err  = clSetKernelArg(kernels["atten_func"], 9, sizeof(int), &level);
+			err = clSetKernelArg(kernels["atten_func"], 3, sizeof(cl_int), &m_width[level]);
+			err = clSetKernelArg(kernels["atten_func"], 4, sizeof(cl_int), &m_height[level]);
+			err = clSetKernelArg(kernels["atten_func"], 5, sizeof(cl_int), &m_offset[level]);
+			err = clSetKernelArg(kernels["atten_func"], 6, sizeof(cl_int), &m_width[level+1]);
+			err = clSetKernelArg(kernels["atten_func"], 7, sizeof(cl_int), &m_height[level+1]);
+			err = clSetKernelArg(kernels["atten_func"], 8, sizeof(cl_int), &m_offset[level+1]);
+			err = clSetKernelArg(kernels["atten_func"], 9, sizeof(cl_int), &level);
 			err = clEnqueueNDRangeKernel(m_queue, kernels["atten_func"], 2, NULL, global_sizes["atten_func"], local_sizes["atten_func"], 0, NULL, NULL);
 			CHECK_ERROR_OCL(err, "enqueuing atten_func kernel", return false);
 		}
@@ -305,9 +307,11 @@ double GradDom::runCLKernels(bool recomputeMapping) {
 	}
 
 	err = clFinish(m_queue);
-
 	CHECK_ERROR_OCL(err, "running kernels", return false);
-	return omp_get_wtime() - start;
+
+	end = omp_get_wtime();
+
+	return (end - start);
 }
 
 bool GradDom::cleanupOpenCL() {

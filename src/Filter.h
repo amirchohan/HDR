@@ -9,6 +9,7 @@
 #pragma once
 
 #include <map>
+#include <vector>
 #include <math.h>
 #include <cassert>
 #include <cstdio>
@@ -24,24 +25,48 @@
 
 #ifdef __ANDROID_API__
 	#include <GLES/gl.h>
-	#define BUGGY_CL_GL 1	//consult the read-me
+	#define BUGGY_CL_GL 1	//see NOTES
 #else
 	#include <GL/gl.h>
 	#define BUGGY_CL_GL 0
 #endif
 
-#define METHOD_REFERENCE  (1<<1)
-#define METHOD_OPENCL     (1<<2)
-
 #define PIXEL_RANGE	255	//8-bit
 #define NUM_CHANNELS 4	//RGBA
 
-#define CHECK_ERROR_OCL(err, op, action)							\
-	if (err != CL_SUCCESS) {										\
-		reportStatus("Error during operation '%s' (%d)", op, err);	\
-		releaseCL();												\
-		action;														\
+#define MAX_NUM_KERNELS 10 //maximum number of kernels in any filter
+
+#define CHECK_ERROR_OCL(err, op, action)						\
+	if (err != CL_SUCCESS) {							\
+		reportStatus("Error during operation '%s' (%d)", op, err);		\
+		releaseCL();								\
+		action;									\
 	}
+
+#define CHECK_PROFILING_OCL(event, op)							\
+	do {										\
+		cl_int num_events = 1;							\
+		clWaitForEvents(num_events, &event);					\
+											\
+		cl_int err = CL_SUCCESS;						\
+		cl_ulong tq, tu, ts, te;						\
+		err |= clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_QUEUED,	\
+			sizeof(tq), &tq, NULL);						\
+		err |= clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_SUBMIT,	\
+			sizeof(tu), &tu, NULL);						\
+		err |= clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START,	\
+			sizeof(ts), &ts, NULL);						\
+		err |= clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END,		\
+			sizeof(te), &te, NULL);						\
+		err |= clReleaseEvent(event);						\
+		CHECK_ERROR_OCL(err, op, return false);					\
+											\
+		reportStatus("%s:", op);						\
+		reportStatus("\t[queueing, submitting, executing]");			\
+		reportStatus("\t[%.3f ms, %.3f ms, %.3f ms]", 				\
+			(tu-tq)*1e-6, (ts-tq)*1e-6, (te-ts)*1e-6);			\
+	} while(0)
+
 
 namespace hdr
 {
@@ -61,6 +86,13 @@ typedef struct {
 	float y;
 	float z;
 } float3;
+
+typedef enum {
+	METHOD_NONE = 0,
+	METHOD_REFERENCE,
+	METHOD_OPENCL,
+	METHOD_LAST
+} method_t;
 
 class Filter {
 public:
@@ -87,11 +119,12 @@ public:
 	//initialise OpenCL kernels and memory objects and anything else which remains the same for each frame in the stream
 	virtual bool setupOpenCL(cl_context_properties context_prop[], const Params& params) = 0;
 	//acquire OpenGL objects, execute kernels and release the objects again
-	virtual bool runOpenCL(bool recomputeMapping=true);
-	//transfer data from input to the GPU, execute kernels and read the output from the GPU
-	virtual bool runOpenCL(uchar* input, uchar* output, bool recomputeMapping=true);
-	//execute the OpenCL kernels
-	virtual double runCLKernels(bool recomputeMapping) = 0;
+	virtual bool runOpenCL(std::vector<bool> whichKernelsToRun, bool recomputeMapping=true);
+	//transfer data from the input to the GPU, execute requested kernels and read the output from the GPU
+	virtual bool runOpenCL(uchar* input, uchar* output,
+		std::vector<bool> whichKernelsToRun, bool recomputeMapping=true, bool verifyOutput=false);
+	//execute the OpenCL kernels for which the flag is set (all by default)
+	virtual double runCLKernels(std::vector<bool> whichKernelsToRun, bool recomputeMapping) = 0;
 	//release all the kernels and memory objects
 	virtual bool cleanupOpenCL() = 0;
 
@@ -132,7 +165,7 @@ protected:
 	GLuint out_tex;
 
 	bool initCL(cl_context_properties context_prop[], const Params& params, const char *source, const char *options);
-	void releaseCL();
+	cl_int releaseCL();
 };
 
 //timing utils

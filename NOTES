@@ -9,21 +9,21 @@ Capturing a camera frame:
 	A SurfaceTexture object can be used to capture frames from the camera as an OpenGL ES texture.
 	The SurfaceTexture object is initialised using an OpenGL ES texture id.
 	However the texture id must be bound to GL_TEXTURE_EXTERNAL_OES texture target.
-	Unfortunately as per the OpenCL specs, when creating an OpenCL texture image from an OpenGL texture, GL_TEXTURE_EXTERNAL_OES isn’t a valid texture target.
+	Unfortunately as per the OpenCL specs, when creating an OpenCL texture image from an OpenGL texture, GL_TEXTURE_EXTERNAL_OES is not a valid texture target.
 	Therefore instead the GL_TEXTURE_EXTERNAL_OES texture is used to render to texture to create a GL_TEXTURE_2D texture.
 
 Reading from OpenGL texture in OpenCL kernels:
-	On android, when reading from an OpenGL texture in an OpenCL kernel the pixel values are between 0 and 15359 as opposed to 0 and 255.
+	On Android, when reading from an OpenGL texture in an OpenCL kernel the pixel values are between 0 and 15359 as opposed to 0 and 255.
 	Furthermore, there isn't a linear mapping between the two sets.
 	For instance if an OpenGL texture pixel has red value of 251, the OpenCL kernel will read it as 15327, whereas if the red value is 1, the OpenCL kernel reads it as 7172.
-	The full set of these mappings can be found in GL-CL_mappings file in the android directory.
-	To inverse this mapping a function consisting of 4 linear and a quartic function is provided in each OpenCL program.
+	The full set of these mappings can be found in the src/android/GL-CL_mappings file.
+	To inverse this mapping a function consisting of 4 linear and a quadratic function is provided in each OpenCL program.
 	The OpenCL program is passed a parameter BUGGY_CL_GL.
-	BUGGY_CL_GL is set to 1 if the project is running on Android and 0 if it's on linux.
+	BUGGY_CL_GL is set to 1 on Android and 0 on Linux.
 	Since the project was only tested on Sony Xperia Z Ultra, it is possible that the problem is unique to this device.
 
 Recompute mappings:
-	The android implementation provides a pipeline for real-time implementation of Pseudo HDR algorithms.
+	The Android implementation provides a pipeline for real-time implementation of Pseudo HDR algorithms.
 	These algorithms are very compute intensive and use various information about the scene.
 	However, it is logical to assume that the scene doesn't vary much in a small duration.
 	Therefore, we can assume that certain features remain same in consecutive frames over a small duration.

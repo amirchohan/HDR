@@ -15,7 +15,7 @@ public:
 	GradDom(float _adjust_alpha=0.1f, float _beta=0.85f, float _sat=0.5f);
 
 	virtual bool setupOpenCL(cl_context_properties context_prop[], const Params& params);
-	virtual double runCLKernels(bool recomputeMapping);
+	virtual double runCLKernels(std::vector<bool> whichKernelsToRun, bool recomputeMapping);
 	virtual bool cleanupOpenCL();
 	virtual bool runReference(uchar* input, uchar* output);
 

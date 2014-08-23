@@ -15,7 +15,7 @@ public:
 	HistEq();
 
 	virtual bool setupOpenCL(cl_context_properties context_prop[], const Params& params);
-	virtual double runCLKernels(bool recomputeMapping);
+	virtual double runCLKernels(std::vector<bool> whichKernelsToRun, bool recomputeMapping);
 	virtual bool cleanupOpenCL();
 	virtual bool runReference(uchar* input, uchar* output);
 };

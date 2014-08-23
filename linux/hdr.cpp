@@ -18,7 +18,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 
-#include "jpeglib.h"
+#include <jpeglib.h>
 #include <SDL2/SDL_image.h>
 
 #include "ReinhardGlobal.h"
@@ -34,7 +34,7 @@ using namespace std;
 
 struct _options_ {
 	map<string, Filter*> filters;
-	map<string, unsigned int> methods;
+	map<string, unsigned> methods;
 
 	_options_() {
 		filters["histEq"] = new HistEq();
@@ -59,17 +59,20 @@ void writeJPG(Image &image, const char* filePath);
 
 
 int main(int argc, char *argv[]) {
-	Filter *filter = NULL;
 	Filter::Params params;
-	unsigned int method = 0;
-	string image_path;
+	Filter *filter = NULL;
+	unsigned method = METHOD_NONE;
+	bool recomputeMapping = false;
+	bool verifyOutput = false;
+	std::string image_path("../test_images/lena-300x300.jpg");
+	std::vector<bool> whichKernelsToRun(1+MAX_NUM_KERNELS, true); // kernel indexing starts from 1
 
 	// Parse arguments
 	for (int i = 1; i < argc; i++) {
 		if (!filter && (Options.filters.find(argv[i]) != Options.filters.end())) {		//tonemap filter
 			filter = Options.filters[argv[i]];
 		}
-		else if (!method && Options.methods.find(argv[i]) != Options.methods.end()) {
+		else if (method == METHOD_NONE && Options.methods.find(argv[i]) != Options.methods.end()) {
 			method = Options.methods[argv[i]];		//implementation method
 		}
 		else if (!strcmp(argv[i], "-cldevice")) {	//run on the given device
@@ -90,6 +93,27 @@ int main(int argc, char *argv[]) {
 				exit(1);
 			}
 		}
+		else if (!strcmp(argv[i], "-kernels")) {	// select which kernels to run
+			whichKernelsToRun.assign(1+MAX_NUM_KERNELS, false); // reset if the flag is provided
+			++i;
+			if (i >= argc) {
+				cout << "Comma-separated list of kernel indices required with -kernels." << endl;
+				exit(1);
+			}
+			unsigned long kernel_idx;
+			char *next_idx = argv[i];
+			while (kernel_idx = strtoul(next_idx, &next_idx, 10)) {
+				if (kernel_idx <= MAX_NUM_KERNELS) { // last valid vector element has index MAX_NUM_KERNELS
+					whichKernelsToRun[kernel_idx] = true;
+					if (*next_idx == ',') {
+						++next_idx;
+					}
+				} else {
+					cout << "Invalid kernel index." << endl;
+					exit(1);
+				}
+			}
+		}
 		else if (!strcmp(argv[i], "-image")) {	//apply filter on the given image
 			++i;
 			if (i >= argc) {
@@ -102,13 +126,19 @@ int main(int argc, char *argv[]) {
 			clinfo();
 			exit(0);
 		}
+		else if (!strcmp(argv[i], "-verify")) {
+			verifyOutput = true;
+		}
+		else if (!strcmp(argv[i], "-remap")) {
+			recomputeMapping = true;
+		}
 	}
-	if (filter == NULL || method == 0) {	//invalid arguments
+
+	if (filter == NULL || method == METHOD_NONE) {	//invalid arguments
 		printUsage();
 		exit(1);
 	}
 
-	if (image_path == "") image_path = "../test_images/lena-300x300.jpg";
 	Image input = readJPG(image_path.c_str());
 
 	// Run filter
@@ -125,7 +155,7 @@ int main(int argc, char *argv[]) {
 			break;
 		case METHOD_OPENCL:
 			filter->setupOpenCL(NULL, params);
-			filter->runOpenCL(input.data, output.data);
+			filter->runOpenCL(input.data, output.data, whichKernelsToRun, recomputeMapping, verifyOutput);
 			filter->cleanupOpenCL();
 			break;
 		default:
@@ -251,7 +281,7 @@ void clinfo() {
 
 
 void printUsage() {
-	cout << endl << "Usage: hdr FILTER METHOD [-image PATH] [-cldevice P:D]";
+	cout << endl << "Usage: hdr FILTER METHOD [-image PATH] [-cldevice P:D] [-kernels index0,index1,...] [-verify]";
 	cout << endl << "       hdr -clinfo" << endl;
 
 	cout << endl << "Where FILTER is one of:" << endl;
@@ -266,17 +296,26 @@ void printUsage() {
 		cout << "\t" << mItr->first << endl;
 	}
 
-	cout << endl
-	<< "If specifying an OpenCL device with -cldevice, " << endl
-	<< "P and D correspond to the platform and device " << endl
-	<< "indices reported by running -clinfo."
+	cout << '\n'
+	<< "If specifying an OpenCL device with \'-cldevice\',\n"
+	<< "P and D correspond to the platform and device\n"
+	<< "indices reported by running \'-clinfo\'."
+	<< endl;
+
+	cout << '\n'
+	<< "When specifying which OpenCL kernels to run with\n"
+	<< "\'-kernels\', kernels are still run in program order,\n"
+	<< "not in order their indices are listed. Unless all\n"
+	<< "the kernels all listed, verification is likely to fail."
+	<< endl;
+
+	cout << '\n'
+	<< "Verification of output against reference implementation\n"
+	<< "is performed only when \'-verify\' is specified."
 	<< endl;
 
 	cout << endl;
 }
-
-
-
 
 
 int updateStatus(const char *format, va_list args) {

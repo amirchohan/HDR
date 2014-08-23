@@ -7,7 +7,7 @@
 // source code.
 
 
-float GL_to_CL(uint val);
+float3 GLtoCL(uint3 val);
 float3 RGBtoXYZ(float3 rgb);
 
 const sampler_t sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_NONE | CLK_FILTER_NEAREST;
@@ -19,7 +19,7 @@ kernel void computeLogAvgLum( 	__read_only image2d_t image,
 								__global float* logAvgLum,
 								__local float* logAvgLum_loc) {
 
-	float luminance;
+	float lum0;
 	float logAvgLum_acc = 0.f;
 
 	int2 pos;
@@ -27,12 +27,11 @@ kernel void computeLogAvgLum( 	__read_only image2d_t image,
 	for (pos.y = get_global_id(1); pos.y < HEIGHT; pos.y += get_global_size(1)) {
 		for (pos.x = get_global_id(0); pos.x < WIDTH; pos.x += get_global_size(0)) {
 			pixel = read_imageui(image, sampler, pos);
-			luminance = GL_to_CL(pixel.x)*0.2126
-				+ GL_to_CL(pixel.y)*0.7152
-				+ GL_to_CL(pixel.z)*0.0722;
+			// lum0 = pixel.x * 0.2126f + pixel.y * 0.7152f + pixel.z * 0.0722f;
+			lum0 = dot(GLtoCL(pixel.xyz), (float3)(0.2126f, 0.7152f, 0.0722f));
 
-			logAvgLum_acc += log(luminance + 0.000001);
-			lum[pos.x + pos.y*WIDTH] = luminance;
+			logAvgLum_acc += log(lum0 + 0.000001f);
+			lum[pos.x + pos.y*WIDTH] = lum0;
 		}
 	}
 
@@ -65,10 +64,10 @@ kernel void finalReduc(	__global float* logAvgLum_acc,
 	if (get_global_id(0)==0) {
 
 		float logAvgLum = 0.f;
-		for (int i=0; i<num_reduc_bins; i++) {
+		for (uint i=0; i < num_reduc_bins; i++) {
 			logAvgLum += logAvgLum_acc[i];
 		}
-		logAvgLum_acc[0] = exp(logAvgLum/((float)WIDTH*HEIGHT));
+		logAvgLum_acc[0] = KEY / exp(logAvgLum/(convert_float(WIDTH*HEIGHT)));
 	}
 	else return;
 }
@@ -93,6 +92,7 @@ kernel void channel_mipmap(	__global float* mipmap,	//array containing all the m
 	}
 }
 
+
 //computes the mapping for each pixel as per Reinhard's Local TMO
 kernel void reinhardLocal(	__global float* Ld_array,	//array to hold the mappings for each pixel. output of this kernel
 							__global float* lumMips,	//contains the entire mipmap pyramid for the luminance of the image
@@ -100,41 +100,60 @@ kernel void reinhardLocal(	__global float* Ld_array,	//array to hold the mapping
 							__global int* m_offset,	///set of indices denotaing the start point of each mipmap in lumMips array
 							__global float* logAvgLum_acc) {
 
-	float factor = KEY/logAvgLum_acc[0];
+	float factor = logAvgLum_acc[0]; // originally (KEY / logAvgLum_acc[0])
 
-	const float scale_sq[7] = {1.f, 2.f*2.f, 4.f*4.f, 8.f*8.f, 16.f*16.f, 32.f*32.f, 64.f*64.f};
+#define PHI_IS_EIGHT_POINT_NOUGHT
+#ifndef PHI_IS_EIGHT_POINT_NOUGHT
 	float k[7];
+    const float scale_sq[7] = \
+		{ 1.f*1.f, 2.f*2.f, 4.f*4.f, 8.f*8.f, 16.f*16.f, 32.f*32.f, 64.f*64.f };
 	for (int i=0; i<NUM_MIPMAPS-1; i++) {
-		k[i] = pow(2.f, PHI)*KEY/scale_sq[i];
+		k[i] = pow(2.f, PHI) * KEY / scale_sq[i];
 	}
+#else
+	constant float k[7] = {
+		256.f * KEY / ( 1.f*1.f ),
+		256.f * KEY / ( 2.f*2.f ),
+		256.f * KEY / ( 4.f*4.f ),
+		256.f * KEY / ( 8.f*8.f ),
+		256.f * KEY / (16.f*16.f),
+		256.f * KEY / (32.f*32.f),
+		256.f * KEY / (64.f*64.f)
+	};
+#endif
+
 	int2 pos, centre_pos, surround_pos;
-	uint4 pixel;
-	float3 rgb, xyz;
 	for (pos.y = get_global_id(1); pos.y < HEIGHT; pos.y += get_global_size(1)) {
 		for (pos.x = get_global_id(0); pos.x < WIDTH; pos.x += get_global_size(0)) {
-			float local_logAvgLum = 0.f;
 			surround_pos = pos;
-			float v, centre_logAvgLum, surround_logAvgLum, cs_diff;
-			for (int i=0; i<NUM_MIPMAPS-1; i++) {
+			float local_logAvgLum = 0.f;
+			for (uint i = 0; i < NUM_MIPMAPS-1; i++) {
 				centre_pos = surround_pos;
 				surround_pos = centre_pos/2;
 
-				centre_logAvgLum = lumMips[centre_pos.x + centre_pos.y*m_width[i] + m_offset[i]]*factor;
-				surround_logAvgLum = lumMips[surround_pos.x + surround_pos.y*m_width[i+1] + m_offset[i+1]]*factor;
+				int2 m_width_01, m_offset_01;
+				m_width_01  = vload2(0, &m_width[i]);
+				m_offset_01 = vload2(0, &m_offset[i]);
 
-				cs_diff = centre_logAvgLum - surround_logAvgLum;
-				cs_diff = cs_diff >= 0 ? cs_diff : -cs_diff;
+				int2 index_01 = m_offset_01 + (int2)(centre_pos.x, surround_pos.x);
+				index_01 += m_width_01 * (int2)(centre_pos.y, surround_pos.y);
 
-				v = cs_diff/(k[i] + centre_logAvgLum);
+				float2 lumMips_01 = factor;
+				lumMips_01 *= (float2)(lumMips[index_01.s0], lumMips[index_01.s1]);
 
-				if (v > EPSILON) {
+				float centre_logAvgLum, surround_logAvgLum;
+				centre_logAvgLum   = lumMips_01.s0;
+				surround_logAvgLum = lumMips_01.s1;
+
+				float cs_diff = fabs(centre_logAvgLum - surround_logAvgLum);
+				if (cs_diff > (k[i] + centre_logAvgLum) * EPSILON) {
 					local_logAvgLum = centre_logAvgLum;
 					break;
+				} else {
+					local_logAvgLum = surround_logAvgLum;
 				}
-				else local_logAvgLum = surround_logAvgLum;
-
 			}
-			Ld_array[pos.x + pos.y*WIDTH] = factor/(1.f + local_logAvgLum);
+			Ld_array[pos.x + pos.y*WIDTH] = factor / (1.f + local_logAvgLum);
 		}
 	}
 }
@@ -149,17 +168,14 @@ kernel void tonemap(__read_only image2d_t input_image,
 	for (pos.y = get_global_id(1); pos.y < HEIGHT; pos.y += get_global_size(1)) {
 		for (pos.x = get_global_id(0); pos.x < WIDTH; pos.x += get_global_size(0)) {
 			pixel = read_imageui(input_image, sampler, pos);
-			rgb.x = GL_to_CL(pixel.x);
-			rgb.y = GL_to_CL(pixel.y);
-			rgb.z = GL_to_CL(pixel.z);
 
+			rgb = GLtoCL(pixel.xyz);
 			xyz = RGBtoXYZ(rgb);
 
 			float Ld  = Ld_array[pos.x + pos.y*WIDTH] * xyz.y;
 
-			pixel.x = clamp((pow(rgb.x/xyz.y, SAT)*Ld), 0.f, 1.f)*255.f;
-			pixel.y = clamp((pow(rgb.y/xyz.y, SAT)*Ld), 0.f, 1.f)*255.f;
-			pixel.z = clamp((pow(rgb.z/xyz.y, SAT)*Ld), 0.f, 1.f)*255.f;
+			pixel.xyz = convert_uint3((float3)255.f * \
+				clamp((pow(rgb.xyz/xyz.y, (float3)SAT)*(float3)Ld), 0.f, 1.f));
 
 			write_imageui(output_image, pos, pixel);
 		}
@@ -167,27 +183,42 @@ kernel void tonemap(__read_only image2d_t input_image,
 }
 
 
-
-
-//convert an RGB pixel to XYZ format
+//convert an RGB pixel to XYZ format:
+//	xyz.x = rgb.x*0.4124f + rgb.y*0.3576f + rgb.z*0.1805f;
+//	xyz.y = rgb.x*0.2126f + rgb.y*0.7152f + rgb.z*0.0722f;
+//	xyz.z = rgb.x*0.0193f + rgb.y*0.1192f + rgb.z*0.9505f;
 float3 RGBtoXYZ(float3 rgb) {
 	float3 xyz;
-	xyz.x = rgb.x*0.4124 + rgb.y*0.3576 + rgb.z*0.1805;
-	xyz.y = rgb.x*0.2126 + rgb.y*0.7152 + rgb.z*0.0722;
-	xyz.z = rgb.x*0.0193 + rgb.y*0.1192 + rgb.z*0.9505;
+	xyz.x = dot(rgb, (float3)(0.4124f, 0.3576f, 0.1805f)); // will be optimised away
+	xyz.y = dot(rgb, (float3)(0.2126f, 0.7152f, 0.0722f));
+	xyz.z = dot(rgb, (float3)(0.0193f, 0.1192f, 0.9505f)); // will be optimised away
 	return xyz;
 }
 
-//a function to read an OpenGL texture pixel when using Snapdragon's Android OpenCL implementation
-float GL_to_CL(uint val) {
-	if (BUGGY_CL_GL) {
-		if (val >= 14340) return round(0.1245790*val - 1658.44);	//>=128
-		if (val >= 13316) return round(0.0622869*val - 765.408);	//>=64
-		if (val >= 12292) return round(0.0311424*val - 350.800);	//>=32
-		if (val >= 11268) return round(0.0155702*val - 159.443);	//>=16
+
+//convert a single OpenGL texture pixel component to an OpenCL texture pixel component
+float GLtoCL1(uint val) {
+	float valf = convert_float(val);
+#if 1 == BUGGY_CL_GL
+	// a workaround for Snapdragon's Android OpenCL implementation
+	if (val >= 14340) return round(0.1245790f*valf - 1658.44f);	//>=128
+	if (val >= 13316) return round(0.0622869f*valf - 765.408f);	//>=64
+	if (val >= 12292) return round(0.0311424f*valf - 350.800f);	//>=32
+	if (val >= 11268) return round(0.0155702f*valf - 159.443f);	//>=16
 	
-		float v = (float) val;
-		return round(0.0000000000000125922*pow(v,4.f) - 0.00000000026729*pow(v,3.f) + 0.00000198135*pow(v,2.f) - 0.00496681*v - 0.0000808829);
-	}
-	else return (float)val;
+	return round(
+		pow(valf, 4.f) * 0.0000000000000125922f -
+		pow(valf, 3.f) * 0.00000000026729f +
+		pow(valf, 2.f) * 0.00000198135f -
+		valf * 0.00496681f -
+		0.0000808829f);
+#else
+	return valf;
+#endif
+}
+
+
+//convert an OpenGL texture pixel to an OpenCL texture pixel
+float3 GLtoCL(uint3 val) {
+	return (float3)(GLtoCL1(val.x), GLtoCL1(val.y), GLtoCL1(val.z));
 }

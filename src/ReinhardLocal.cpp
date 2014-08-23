@@ -30,7 +30,7 @@ ReinhardLocal::ReinhardLocal(float _key, float _sat, float _epsilon, float _phi)
 bool ReinhardLocal::setupOpenCL(cl_context_properties context_prop[], const Params& params) {
 
 	char flags[1024];
-	sprintf(flags, "-cl-fast-relaxed-math -D NUM_CHANNELS=%d -D WIDTH=%d -D HEIGHT=%d -D NUM_MIPMAPS=%d -D KEY=%f -D SAT=%f -D EPSILON=%f -D PHI=%f -D BUGGY_CL_GL=%d",
+	sprintf(flags, "-cl-fast-relaxed-math -D NUM_CHANNELS=%d -D WIDTH=%d -D HEIGHT=%d -D NUM_MIPMAPS=%d -D KEY=%ff -D SAT=%ff -D EPSILON=%ff -D PHI=%ff -D BUGGY_CL_GL=%d",
 				NUM_CHANNELS, img_size.x, img_size.y, num_mipmaps, key, sat, epsilon, phi, BUGGY_CL_GL);
 
 	if (!initCL(context_prop, params, reinhardLocal_kernel, flags)) {
@@ -141,29 +141,30 @@ bool ReinhardLocal::setupOpenCL(cl_context_properties context_prop[], const Para
 
 	/////////////////////////////////////////////////////////////////setting kernel arguements
 
-	err  = clSetKernelArg(kernels["computeLogAvgLum"], 0, sizeof(cl_mem), &mem_images[0]);
-	err  = clSetKernelArg(kernels["computeLogAvgLum"], 1, sizeof(cl_mem), &mems["lumMips"]);
-	err  = clSetKernelArg(kernels["computeLogAvgLum"], 2, sizeof(cl_mem), &mems["logAvgLum"]);
-	err  = clSetKernelArg(kernels["computeLogAvgLum"], 3, sizeof(float*)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 0, sizeof(cl_mem), &mem_images[0]);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 1, sizeof(cl_mem), &mems["lumMips"]);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 2, sizeof(cl_mem), &mems["logAvgLum"]);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 3,
+		sizeof(cl_float)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
 	CHECK_ERROR_OCL(err, "setting computeLogAvgLum arguments", return false);
 
-	err  = clSetKernelArg(kernels["channel_mipmap"], 0, sizeof(cl_mem), &mems["lumMips"]);
+	err = clSetKernelArg(kernels["channel_mipmap"], 0, sizeof(cl_mem), &mems["lumMips"]);
 	CHECK_ERROR_OCL(err, "setting channel_mipmap arguments", return false);
 
-	err  = clSetKernelArg(kernels["finalReduc"], 0, sizeof(cl_mem), &mems["logAvgLum"]);
-	err  = clSetKernelArg(kernels["finalReduc"], 1, sizeof(unsigned int), &num_wg);
+	err = clSetKernelArg(kernels["finalReduc"], 0, sizeof(cl_mem), &mems["logAvgLum"]);
+	err = clSetKernelArg(kernels["finalReduc"], 1, sizeof(cl_uint), &num_wg);
 	CHECK_ERROR_OCL(err, "setting finalReduc arguments", return false);
 
-	err  = clSetKernelArg(kernels["reinhardLocal"], 0, sizeof(cl_mem), &mems["Ld_array"]);
-	err  = clSetKernelArg(kernels["reinhardLocal"], 1, sizeof(cl_mem), &mems["lumMips"]);
-	err  = clSetKernelArg(kernels["reinhardLocal"], 2, sizeof(cl_mem), &mems["m_width"]);
-	err  = clSetKernelArg(kernels["reinhardLocal"], 3, sizeof(cl_mem), &mems["m_offset"]);
-	err  = clSetKernelArg(kernels["reinhardLocal"], 4, sizeof(cl_mem), &mems["logAvgLum"]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 0, sizeof(cl_mem), &mems["Ld_array"]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 1, sizeof(cl_mem), &mems["lumMips"]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 2, sizeof(cl_mem), &mems["m_width"]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 3, sizeof(cl_mem), &mems["m_offset"]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 4, sizeof(cl_mem), &mems["logAvgLum"]);
 	CHECK_ERROR_OCL(err, "setting reinhardLocal arguments", return false);
 
-	err  = clSetKernelArg(kernels["tonemap"], 0, sizeof(cl_mem), &mem_images[0]);
-	err  = clSetKernelArg(kernels["tonemap"], 1, sizeof(cl_mem), &mem_images[1]);
-	err  = clSetKernelArg(kernels["tonemap"], 2, sizeof(cl_mem), &mems["Ld_array"]);
+	err = clSetKernelArg(kernels["tonemap"], 0, sizeof(cl_mem), &mem_images[0]);
+	err = clSetKernelArg(kernels["tonemap"], 1, sizeof(cl_mem), &mem_images[1]);
+	err = clSetKernelArg(kernels["tonemap"], 2, sizeof(cl_mem), &mems["Ld_array"]);
 	CHECK_ERROR_OCL(err, "setting tonemap arguments", return false);
 
 	reportStatus("\n\n");
@@ -171,41 +172,77 @@ bool ReinhardLocal::setupOpenCL(cl_context_properties context_prop[], const Para
 	return true;
 }
 
-double ReinhardLocal::runCLKernels(bool recomputeMapping) {
-	double start = omp_get_wtime();
+double ReinhardLocal::runCLKernels(std::vector<bool> whichKernelsToRun, bool recomputeMapping) {
+	double start, end;
 
-	cl_int err;
-	if (recomputeMapping) {
-		err = clEnqueueNDRangeKernel(m_queue, kernels["computeLogAvgLum"], 2, NULL, global_sizes["computeLogAvgLum"], local_sizes["computeLogAvgLum"], 0, NULL, NULL);
-		CHECK_ERROR_OCL(err, "enqueuing computeLogAvgLum kernel", return false);
-	
-		err = clEnqueueNDRangeKernel(m_queue, kernels["finalReduc"], 1, NULL, &global_sizes["finalReduc"][0], &local_sizes["finalReduc"][0], 0, NULL, NULL);
-		CHECK_ERROR_OCL(err, "enqueuing finalReduc kernel", return false);
-	
-		//creating mipmaps
-		for (int level=1; level<num_mipmaps; level++) {
-			err  = clSetKernelArg(kernels["channel_mipmap"], 1, sizeof(int), &m_width[level-1]);
-			err  = clSetKernelArg(kernels["channel_mipmap"], 2, sizeof(int), &m_offset[level-1]);
-			err  = clSetKernelArg(kernels["channel_mipmap"], 3, sizeof(int), &m_width[level]);
-			err  = clSetKernelArg(kernels["channel_mipmap"], 4, sizeof(int), &m_height[level]);
-			err  = clSetKernelArg(kernels["channel_mipmap"], 5, sizeof(int), &m_offset[level]);
-			CHECK_ERROR_OCL(err, "setting channel_mipmap arguments", return false);
-	
-			err = clEnqueueNDRangeKernel(m_queue, kernels["channel_mipmap"], 2, NULL, global_sizes["channel_mipmap"], local_sizes["channel_mipmap"], 0, NULL, NULL);
-			CHECK_ERROR_OCL(err, "enqueuing channel_mipmap kernel", return false);
+	if (!whichKernelsToRun[0]) {
+		// if whichKernelsToRun[0] is false, -kernels was provided;
+		// hence, should warn about invalid indices
+		for (unsigned kernelIdx = 6; kernelIdx < whichKernelsToRun.size(); ++kernelIdx) {
+			if (whichKernelsToRun[kernelIdx]) {
+				reportStatus("Warning: no kernel with index %d", kernelIdx);
+			}
 		}
-	
-		err = clEnqueueNDRangeKernel(m_queue, kernels["reinhardLocal"], 2, NULL, global_sizes["reinhardLocal"], local_sizes["reinhardLocal"], 0, NULL, NULL);
-		CHECK_ERROR_OCL(err, "enqueuing reinhardLocal kernel", return false);
 	}
 
-	err = clEnqueueNDRangeKernel(m_queue, kernels["tonemap"], 2, NULL, global_sizes["tonemap"], local_sizes["tonemap"], 0, NULL, NULL);
-	CHECK_ERROR_OCL(err, "enqueuing tonemap kernel", return false);
+	start = omp_get_wtime();
+
+	cl_int err = CL_SUCCESS;
+	cl_event event = 0;
+
+	if (recomputeMapping) {
+		if (whichKernelsToRun[1]) {
+			err = clEnqueueNDRangeKernel(m_queue, kernels["computeLogAvgLum"], 2, NULL,
+				global_sizes["computeLogAvgLum"], local_sizes["computeLogAvgLum"], 0, NULL, &event);
+			CHECK_ERROR_OCL(err, "enqueuing computeLogAvgLum kernel", return false);
+			CHECK_PROFILING_OCL(event, "profiling kernel 1: computeLogAvgLum");
+		}
+
+		if (whichKernelsToRun[2]) {
+			err = clEnqueueNDRangeKernel(m_queue, kernels["finalReduc"], 1, NULL,
+				&global_sizes["finalReduc"][0], &local_sizes["finalReduc"][0], 0, NULL, &event);
+			CHECK_ERROR_OCL(err, "enqueuing finalReduc kernel", return false);
+			CHECK_PROFILING_OCL(event, "profiling kernel 2: finalReduc");
+		}
+	
+		if (whichKernelsToRun[3]) {
+			//creating mipmaps
+			for (int level=1; level<num_mipmaps; level++) {
+				err |= clSetKernelArg(kernels["channel_mipmap"], 1, sizeof(int), &m_width[level-1]);
+				err |= clSetKernelArg(kernels["channel_mipmap"], 2, sizeof(int), &m_offset[level-1]);
+				err |= clSetKernelArg(kernels["channel_mipmap"], 3, sizeof(int), &m_width[level]);
+				err |= clSetKernelArg(kernels["channel_mipmap"], 4, sizeof(int), &m_height[level]);
+				err |= clSetKernelArg(kernels["channel_mipmap"], 5, sizeof(int), &m_offset[level]);
+				CHECK_ERROR_OCL(err, "setting channel_mipmap arguments", return false);
+	
+				err = clEnqueueNDRangeKernel(m_queue, kernels["channel_mipmap"], 2, NULL,
+					global_sizes["channel_mipmap"], local_sizes["channel_mipmap"], 0, NULL, &event);
+				CHECK_ERROR_OCL(err, "enqueuing channel_mipmap kernel", return false);
+				CHECK_PROFILING_OCL(event, "profiling kernel 3: channel_mipmap");
+			}
+		}
+
+		if (whichKernelsToRun[4]) {
+			err = clEnqueueNDRangeKernel(m_queue, kernels["reinhardLocal"], 2, NULL,
+				global_sizes["reinhardLocal"], local_sizes["reinhardLocal"], 0, NULL, &event);
+			CHECK_ERROR_OCL(err, "enqueuing reinhardLocal kernel", return false);
+			CHECK_PROFILING_OCL(event, "profiling kernel 4: reinhardLocal");
+		}
+	}
+
+	if (whichKernelsToRun[5]) {
+		err = clEnqueueNDRangeKernel(m_queue, kernels["tonemap"], 2, NULL,
+			global_sizes["tonemap"], local_sizes["tonemap"], 0, NULL, &event);
+		CHECK_ERROR_OCL(err, "enqueuing tonemap kernel", return false);
+		CHECK_PROFILING_OCL(event, "profiling kernel 5: tonemap");
+	}
 
 	err = clFinish(m_queue);
-
 	CHECK_ERROR_OCL(err, "running kernels", return false);
-	return omp_get_wtime() - start;	
+
+	end = omp_get_wtime();
+
+	return (end - start);
 }
 
 bool ReinhardLocal::cleanupOpenCL() {

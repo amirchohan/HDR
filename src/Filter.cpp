@@ -87,7 +87,7 @@ bool Filter::initCL(cl_context_properties context_prop[], const Params& params, 
 	m_clContext = clCreateContext(context_prop, 1, &m_device, NULL, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating context", return false);
 
-	m_queue = clCreateCommandQueue(m_clContext, m_device, 0, &err);
+	m_queue = clCreateCommandQueue(m_clContext, m_device, CL_QUEUE_PROFILING_ENABLE, &err);
 	CHECK_ERROR_OCL(err, "creating command queue", return false);
 
 	m_program = clCreateProgramWithSource(m_clContext, 1, &source, NULL, &err);
@@ -110,38 +110,46 @@ bool Filter::initCL(cl_context_properties context_prop[], const Params& params, 
 	return true;
 }
 
-void Filter::releaseCL() {
+cl_int Filter::releaseCL() {
+	cl_int err = CL_SUCCESS;
+
 	if (m_program) {
-		clReleaseProgram(m_program);
+		err = clReleaseProgram(m_program);
+		CHECK_ERROR_OCL(err, "releasing program", return false);
 		m_program = 0;
 	}
 	if (m_queue) {
-		clReleaseCommandQueue(m_queue);
+		err = clReleaseCommandQueue(m_queue);
+		CHECK_ERROR_OCL(err, "releasing queue", return false);
 		m_queue = 0;
 	}
 	if (m_clContext) {
-		clReleaseContext(m_clContext);
+		err = clReleaseContext(m_clContext);
+		CHECK_ERROR_OCL(err, "releasing context", return false);
 		m_clContext = 0;
 	}
+
+	return err;
 }
 
-bool Filter::runOpenCL(bool recomputeMapping) {
+bool Filter::runOpenCL(std::vector<bool> whichKernelsToRun, bool recomputeMapping) {
 	cl_int err;
 
 	err = clEnqueueAcquireGLObjects(m_queue, 2, &mem_images[0], 0, 0, 0);
 	CHECK_ERROR_OCL(err, "acquiring GL objects", return false);
 
-	double runTime = runCLKernels(recomputeMapping);
+	double runTime = runCLKernels(whichKernelsToRun, recomputeMapping);
 
 	err = clEnqueueReleaseGLObjects(m_queue, 2, &mem_images[0], 0, 0, 0);
 	CHECK_ERROR_OCL(err, "releasing GL objects", return false);
 
-	reportStatus("Finished OpenCL kernels in %lf ms", runTime*1000);
+	reportStatus("Finished running OpenCL kernels in %.3f ms", runTime * 1e3);
 
 	return true;
 }
 
-bool Filter::runOpenCL(uchar* input, uchar* output, bool recomputeMapping) {
+bool Filter::runOpenCL(uchar* input, uchar* output,
+		std::vector<bool> whichKernelsToRun, bool recomputeMapping, bool verifyOutput) {
 	cl_int err;
 
  	const size_t origin[] = {0, 0, 0};
@@ -149,23 +157,24 @@ bool Filter::runOpenCL(uchar* input, uchar* output, bool recomputeMapping) {
 	err = clEnqueueWriteImage(m_queue, mem_images[0], CL_TRUE, origin, region, sizeof(uchar)*img_size.x*NUM_CHANNELS, 0, input, 0, NULL, NULL);
 	CHECK_ERROR_OCL(err, "writing image memory", return false);
 
-	double runTime = runCLKernels(recomputeMapping);
+	double runTime = runCLKernels(whichKernelsToRun, recomputeMapping);
 
 	err = clEnqueueReadImage(m_queue, mem_images[1], CL_TRUE, origin, region, sizeof(uchar)*img_size.x*NUM_CHANNELS, 0, output, 0, NULL, NULL);
 	CHECK_ERROR_OCL(err, "reading image memory", return false);
 
-	reportStatus("Finished OpenCL kernel");
+	reportStatus("Finished running OpenCL kernels in %.3f ms", runTime * 1e3);
 
 	// Verification
-	bool passed = verify(input, output);
-	reportStatus(
-		"Finished in %lf ms (verification %s)",
-		runTime*1000, passed ? "passed" : "failed");
+	bool passed = true;
+	if (verifyOutput) {
+		passed = verify(input, output);
+		reportStatus("Verification: %s", passed ? "PASSED" : "FAILED");
+	} else {
+		reportStatus("Verification: %s", "NOT RUN");
+	}
 
 	return passed;
 }
-
-
 
 
 void Filter::reportStatus(const char *format, ...) const {
@@ -176,6 +185,7 @@ void Filter::reportStatus(const char *format, ...) const {
 		va_end(args);
 	}
 }
+
 
 void Filter::setStatusCallback(int (*callback)(const char*, va_list args)) {
 	m_statusCallback = callback;
@@ -267,14 +277,15 @@ bool Filter::kernel2DSizes(const char* kernel_name) {
 	size_t* global = (size_t*) calloc(2, sizeof(size_t));
 
 	int i=0;
-	local[0] = 1;
+	local[0] = preferred_wg_size;
 	local[1] = 1;
-	while (local[0]*local[1] <= preferred_wg_size) {
+	while (local[0]*local[1] <= max_wg_size) {
 		local[i%2] *= 2;
 		i++;
 	}
-	if (local[0]*local[1] > max_wg_size) {
+	while (local[0]*local[1] > max_wg_size) {
 		local[i%2] /= 2;
+		i--;
 	}
 
 	global[0] = local[0]*max_cu;
