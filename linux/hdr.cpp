@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
 	Filter::Params params;
 	Filter *filter = NULL;
 	unsigned method = METHOD_NONE;
-	bool recomputeMapping = false;
+	bool recomputeMapping = true;
 	bool verifyOutput = false;
 	std::string image_path("../test_images/lena-300x300.jpg");
 	std::vector<bool> whichKernelsToRun(1+MAX_NUM_KERNELS, true); // kernel indexing starts from 1
@@ -129,8 +129,8 @@ int main(int argc, char *argv[]) {
 		else if (!strcmp(argv[i], "-verify")) {
 			verifyOutput = true;
 		}
-		else if (!strcmp(argv[i], "-remap")) {
-			recomputeMapping = true;
+		else if (!strcmp(argv[i], "-no-remap")) {
+			recomputeMapping = false;
 		}
 	}
 
