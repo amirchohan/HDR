@@ -53,13 +53,9 @@ bool ReinhardLocal::setupOpenCL(cl_context_properties context_prop[], const Para
 	kernels["finalReduc"] = clCreateKernel(m_program, "finalReduc", &err);
 	CHECK_ERROR_OCL(err, "creating finalReduc kernel", return false);
 
-	//computes the operation to be applied to each pixel
+	//computes the operation to be applied to each pixel and performs the actual tonemapping
 	kernels["reinhardLocal"] = clCreateKernel(m_program, "reinhardLocal", &err);
 	CHECK_ERROR_OCL(err, "creating reinhardLocal kernel", return false);
-
-	//performs the actual tonemapping using the Ld_array computed in the previous function
-	kernels["tonemap"] = clCreateKernel(m_program, "tonemap", &err);
-	CHECK_ERROR_OCL(err, "creating tonemap kernel", return false);
 
 	/////////////////////////////////////////////////////////////////kernel sizes
 	reportStatus("\nKernels:");
@@ -67,7 +63,6 @@ bool ReinhardLocal::setupOpenCL(cl_context_properties context_prop[], const Para
 	kernel2DSizes("computeLogAvgLum");
 	kernel2DSizes("channel_mipmap");
 	kernel2DSizes("reinhardLocal");
-	kernel2DSizes("tonemap");
 
 
 	reportStatus("---------------------------------Kernel finalReduc:");
@@ -118,9 +113,6 @@ bool ReinhardLocal::setupOpenCL(cl_context_properties context_prop[], const Para
 	mems["logAvgLum"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*num_wg, NULL, &err);
 	CHECK_ERROR_OCL(err, "creating logAvgLum memory", return false);
 
-	mems["Ld_array"] = clCreateBuffer(m_clContext, CL_MEM_READ_WRITE, sizeof(float)*img_size.x*img_size.y, NULL, &err);
-	CHECK_ERROR_OCL(err, "creating Ld_array memory", return false);
-
 	if (params.opengl) {
 		mem_images[0] = clCreateFromGLTexture2D(m_clContext, CL_MEM_READ_ONLY, GL_TEXTURE_2D, 0, in_tex, &err);
 		CHECK_ERROR_OCL(err, "creating gl input texture", return false);
@@ -155,17 +147,13 @@ bool ReinhardLocal::setupOpenCL(cl_context_properties context_prop[], const Para
 	err = clSetKernelArg(kernels["finalReduc"], 1, sizeof(cl_uint), &num_wg);
 	CHECK_ERROR_OCL(err, "setting finalReduc arguments", return false);
 
-	err = clSetKernelArg(kernels["reinhardLocal"], 0, sizeof(cl_mem), &mems["Ld_array"]);
-	err = clSetKernelArg(kernels["reinhardLocal"], 1, sizeof(cl_mem), &mems["lumMips"]);
-	err = clSetKernelArg(kernels["reinhardLocal"], 2, sizeof(cl_mem), &mems["m_width"]);
-	err = clSetKernelArg(kernels["reinhardLocal"], 3, sizeof(cl_mem), &mems["m_offset"]);
-	err = clSetKernelArg(kernels["reinhardLocal"], 4, sizeof(cl_mem), &mems["logAvgLum"]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 0, sizeof(cl_mem), &mem_images[0]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 1, sizeof(cl_mem), &mem_images[1]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 2, sizeof(cl_mem), &mems["lumMips"]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 3, sizeof(cl_mem), &mems["m_width"]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 4, sizeof(cl_mem), &mems["m_offset"]);
+	err = clSetKernelArg(kernels["reinhardLocal"], 5, sizeof(cl_mem), &mems["logAvgLum"]);
 	CHECK_ERROR_OCL(err, "setting reinhardLocal arguments", return false);
-
-	err = clSetKernelArg(kernels["tonemap"], 0, sizeof(cl_mem), &mem_images[0]);
-	err = clSetKernelArg(kernels["tonemap"], 1, sizeof(cl_mem), &mem_images[1]);
-	err = clSetKernelArg(kernels["tonemap"], 2, sizeof(cl_mem), &mems["Ld_array"]);
-	CHECK_ERROR_OCL(err, "setting tonemap arguments", return false);
 
 	reportStatus("\n\n");
 
@@ -178,7 +166,7 @@ double ReinhardLocal::runCLKernels(std::vector<bool> whichKernelsToRun, bool rec
 	if (!whichKernelsToRun[0]) {
 		// if whichKernelsToRun[0] is false, -kernels was provided;
 		// hence, should warn about invalid indices
-		for (unsigned kernelIdx = 6; kernelIdx < whichKernelsToRun.size(); ++kernelIdx) {
+		for (unsigned kernelIdx = 5; kernelIdx < whichKernelsToRun.size(); ++kernelIdx) {
 			if (whichKernelsToRun[kernelIdx]) {
 				reportStatus("Warning: no kernel with index %d", kernelIdx);
 			}
@@ -230,13 +218,6 @@ double ReinhardLocal::runCLKernels(std::vector<bool> whichKernelsToRun, bool rec
 		}
 	}
 
-	if (whichKernelsToRun[5]) {
-		err = clEnqueueNDRangeKernel(m_queue, kernels["tonemap"], 2, NULL,
-			global_sizes["tonemap"], local_sizes["tonemap"], 0, NULL, &event);
-		CHECK_ERROR_OCL(err, "enqueuing tonemap kernel", return false);
-		CHECK_PROFILING_OCL(event, "profiling kernel 5: tonemap");
-	}
-
 	err = clFinish(m_queue);
 	CHECK_ERROR_OCL(err, "running kernels", return false);
 
@@ -248,7 +229,6 @@ double ReinhardLocal::runCLKernels(std::vector<bool> whichKernelsToRun, bool rec
 bool ReinhardLocal::cleanupOpenCL() {
 	clReleaseMemObject(mem_images[0]);
 	clReleaseMemObject(mem_images[1]);
-	clReleaseMemObject(mems["Ld_array"]);
 	clReleaseMemObject(mems["lumMips"]);
 	clReleaseMemObject(mems["m_width"]);
 	clReleaseMemObject(mems["m_height"]);

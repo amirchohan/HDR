@@ -37,7 +37,7 @@ bool ReinhardGlobal::setupOpenCL(cl_context_properties context_prop[], const Par
 	kernels["finalReduc"] = clCreateKernel(m_program, "finalReduc", &err);
 	CHECK_ERROR_OCL(err, "creating finalReduc kernel", return false);
 
-	//performs the reinhard global tone mapping operator
+	//this kernel performs the reinhard global tone mapping operator
 	kernels["reinhardGlobal"] = clCreateKernel(m_program, "reinhardGlobal", &err);
 	CHECK_ERROR_OCL(err, "creating reinhardGlobal kernel", return false);
 
@@ -95,8 +95,10 @@ bool ReinhardGlobal::setupOpenCL(cl_context_properties context_prop[], const Par
 	err = clSetKernelArg(kernels["computeLogAvgLum"], 0, sizeof(cl_mem), &mem_images[0]);
 	err = clSetKernelArg(kernels["computeLogAvgLum"], 1, sizeof(cl_mem), &mems["logAvgLum"]);
 	err = clSetKernelArg(kernels["computeLogAvgLum"], 2, sizeof(cl_mem), &mems["Lwhite"]);
-	err = clSetKernelArg(kernels["computeLogAvgLum"], 3, sizeof(cl_float)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
-	err = clSetKernelArg(kernels["computeLogAvgLum"], 4, sizeof(cl_float)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 3,
+		sizeof(cl_float)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
+	err = clSetKernelArg(kernels["computeLogAvgLum"], 4,
+		sizeof(cl_float)*local_sizes["computeLogAvgLum"][0]*local_sizes["computeLogAvgLum"][1], NULL);
 	CHECK_ERROR_OCL(err, "setting computeLogAvgLum arguments", return false);
 
 	err = clSetKernelArg(kernels["finalReduc"], 0, sizeof(cl_mem), &mems["logAvgLum"]);
@@ -187,8 +189,8 @@ bool ReinhardGlobal::cleanupOpenCL() {
 	err = clReleaseKernel(kernels["reinhardGlobal"]);
 	CHECK_ERROR_OCL(err, "releasing kernel reinhardGlobal", return false);
 
-//	err = releaseCL();
-	releaseCL();
+	err = releaseCL();
+
 	return CL_SUCCESS == err;
 }
 

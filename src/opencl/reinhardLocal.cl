@@ -94,7 +94,8 @@ kernel void channel_mipmap(	__global float* mipmap,	//array containing all the m
 
 
 //computes the mapping for each pixel as per Reinhard's Local TMO
-kernel void reinhardLocal(	__global float* Ld_array,	//array to hold the mappings for each pixel. output of this kernel
+kernel void reinhardLocal(	__read_only image2d_t input_image,
+							__write_only image2d_t output_image,
 							__global float* lumMips,	//contains the entire mipmap pyramid for the luminance of the image
 							__global int* m_width,	//width of each of the mipmaps
 							__global int* m_offset,	///set of indices denotaing the start point of each mipmap in lumMips array
@@ -153,27 +154,13 @@ kernel void reinhardLocal(	__global float* Ld_array,	//array to hold the mapping
 					local_logAvgLum = surround_logAvgLum;
 				}
 			}
-			Ld_array[pos.x + pos.y*WIDTH] = factor / (1.f + local_logAvgLum);
-		}
-	}
-}
 
-//applies the previously computed mappings to image pixels
-kernel void tonemap(__read_only image2d_t input_image,
-					__write_only image2d_t output_image,
-					__global float* Ld_array) {
-	int2 pos;
-	uint4 pixel;
-	float3 rgb, xyz;
-	for (pos.y = get_global_id(1); pos.y < HEIGHT; pos.y += get_global_size(1)) {
-		for (pos.x = get_global_id(0); pos.x < WIDTH; pos.x += get_global_size(0)) {
-			pixel = read_imageui(input_image, sampler, pos);
+			uint4 pixel = read_imageui(input_image, sampler, pos);
 
-			rgb = GLtoCL(pixel.xyz);
-			xyz = RGBtoXYZ(rgb);
+			float3 rgb = GLtoCL(pixel.xyz);
+			float3 xyz = RGBtoXYZ(rgb);
 
-			float Ld  = Ld_array[pos.x + pos.y*WIDTH] * xyz.y;
-
+			float Ld  = factor / (1.f + local_logAvgLum) * xyz.y;
 			pixel.xyz = convert_uint3((float3)255.f * \
 				clamp((pow(rgb.xyz/xyz.y, (float3)SAT)*(float3)Ld), 0.f, 1.f));
 
